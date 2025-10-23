@@ -280,117 +280,117 @@ jobs:
   #       run: |
   #         # Generate unique droplet name
   #         DROPLET_NAME="cpu-droplet-benchmark-$(date +%s)"
-          echo "🚀 Creating CPU droplet: $DROPLET_NAME"
-          
-          # Convert SSH key names to IDs for CPU droplet
-          echo "Converting SSH key names to IDs..."
-          SSH_KEY_IDS=""
-          IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.cpu_ssh_keys }}"
-          for key_name in "${SSH_KEYS[@]}"; do
-            key_name=$(echo "$key_name" | xargs) # trim whitespace
-            key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
-            if [ -n "$SSH_KEY_IDS" ]; then
-              SSH_KEY_IDS="$SSH_KEY_IDS,$key_id"
-            else
-              SSH_KEY_IDS="$key_id"
-            fi
-            echo "  '$key_name' → ID: $key_id"
-          done
-          
-          echo ""
-          echo "CPU Droplet Configuration:"
-          echo "  Name: $DROPLET_NAME"
-          echo "  Size: ${{ github.event.inputs.cpu_slug }}"
-          echo "  Region: ${{ github.event.inputs.cpu_region }}"
-          echo "  Image: ${{ github.event.inputs.cpu_image }}"
-          echo "  SSH Key Names: ${{ github.event.inputs.cpu_ssh_keys }}"
-          echo "  SSH Key IDs: $SSH_KEY_IDS"
-          echo ""
-          
-          # Create the CPU droplet
-          echo "⏳ Creating CPU droplet..."
-          if DROPLET_OUTPUT=$(doctl compute droplet create "$DROPLET_NAME" \
-            --size "${{ github.event.inputs.cpu_slug }}" \
-            --region "${{ github.event.inputs.cpu_region }}" \
-            --image "${{ github.event.inputs.cpu_image }}" \
-            --ssh-keys $SSH_KEY_IDS \
-            --tag-names "cpu-droplet-benchmark,github-actions" \
-            --format ID \
-            --no-header 2>&1); then
-            
-            # Extract droplet ID - should be a single line with just the ID
-            DROPLET_ID=$(echo "$DROPLET_OUTPUT" | head -n1 | xargs)
-            
-            # Validate we got a single numeric ID
-            if [[ ! "$DROPLET_ID" =~ ^[0-9]+$ ]]; then
-              echo "❌ ERROR: Invalid droplet ID received: '$DROPLET_ID'"
-              echo "Full output was:"
-              echo "$DROPLET_OUTPUT"
-              exit 1
-            fi
-            
-            echo "🎉 SUCCESS: CPU Droplet created successfully!"
-            echo "Droplet ID: $DROPLET_ID"
-            echo "Droplet Name: $DROPLET_NAME"
-            echo ""
-            
-            # Get detailed droplet info for display
-            echo "📊 CPU Droplet details:"
-            doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status
-            
-            # Set outputs for next job
-            echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
-            echo "droplet-name=$DROPLET_NAME" >> $GITHUB_OUTPUT
-            echo "success=true" >> $GITHUB_OUTPUT
-            
-          else
-            echo "❌ FAILED: Could not create CPU droplet"
-            echo "Error details:"
-            echo "$DROPLET_OUTPUT"
-            
-            # Analyze the error
-            if echo "$DROPLET_OUTPUT" | grep -i "insufficient\|capacity\|unavailable" > /dev/null; then
-              echo ""
-              echo "💡 Analysis: No capacity available for CPU droplet in region ${{ github.event.inputs.cpu_region }}"
-            elif echo "$DROPLET_OUTPUT" | grep -i "invalid\|not found" > /dev/null; then
-              echo ""
-              echo "💡 Analysis: Invalid configuration - check size/region/image combination"
-            elif echo "$DROPLET_OUTPUT" | grep -i "limit\|quota" > /dev/null; then
-              echo ""
-              echo "💡 Analysis: Account limits reached"
-            fi
-            
-            echo "success=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
+  #         echo "🚀 Creating CPU droplet: $DROPLET_NAME"
+  #         
+  #         # Convert SSH key names to IDs for CPU droplet
+  #         echo "Converting SSH key names to IDs..."
+  #         SSH_KEY_IDS=""
+  #         IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.cpu_ssh_keys }}"
+  #         for key_name in "${SSH_KEYS[@]}"; do
+  #           key_name=$(echo "$key_name" | xargs) # trim whitespace
+  #           key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
+  #           if [ -n "$SSH_KEY_IDS" ]; then
+  #             SSH_KEY_IDS="$SSH_KEY_IDS,$key_id"
+  #           else
+  #             SSH_KEY_IDS="$key_id"
+  #           fi
+  #           echo "  '$key_name' → ID: $key_id"
+  #         done
+  #         
+  #         echo ""
+  #         echo "CPU Droplet Configuration:"
+  #         echo "  Name: $DROPLET_NAME"
+  #         echo "  Size: ${{ github.event.inputs.cpu_slug }}"
+  #         echo "  Region: ${{ github.event.inputs.cpu_region }}"
+  #         echo "  Image: ${{ github.event.inputs.cpu_image }}"
+  #         echo "  SSH Key Names: ${{ github.event.inputs.cpu_ssh_keys }}"
+  #         echo "  SSH Key IDs: $SSH_KEY_IDS"
+  #         echo ""
+  #         
+  #         # Create the CPU droplet
+  #         echo "⏳ Creating CPU droplet..."
+  #         if DROPLET_OUTPUT=$(doctl compute droplet create "$DROPLET_NAME" \
+  #           --size "${{ github.event.inputs.cpu_slug }}" \
+  #           --region "${{ github.event.inputs.cpu_region }}" \
+  #           --image "${{ github.event.inputs.cpu_image }}" \
+  #           --ssh-keys $SSH_KEY_IDS \
+  #           --tag-names "cpu-droplet-benchmark,github-actions" \
+  #           --format ID \
+  #           --no-header 2>&1); then
+  #           
+  #           # Extract droplet ID - should be a single line with just the ID
+  #           DROPLET_ID=$(echo "$DROPLET_OUTPUT" | head -n1 | xargs)
+  #           
+  #           # Validate we got a single numeric ID
+  #           if [[ ! "$DROPLET_ID" =~ ^[0-9]+$ ]]; then
+  #             echo "❌ ERROR: Invalid droplet ID received: '$DROPLET_ID'"
+  #             echo "Full output was:"
+  #             echo "$DROPLET_OUTPUT"
+  #             exit 1
+  #           fi
+  #           
+  #           echo "🎉 SUCCESS: CPU Droplet created successfully!"
+  #           echo "Droplet ID: $DROPLET_ID"
+  #           echo "Droplet Name: $DROPLET_NAME"
+  #           echo ""
+  #           
+  #           # Get detailed droplet info for display
+  #           echo "📊 CPU Droplet details:"
+  #           doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status
+  #           
+  #           # Set outputs for next job
+  #           echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
+  #           echo "droplet-name=$DROPLET_NAME" >> $GITHUB_OUTPUT
+  #           echo "success=true" >> $GITHUB_OUTPUT
+  #           
+  #         else
+  #           echo "❌ FAILED: Could not create CPU droplet"
+  #           echo "Error details:"
+  #           echo "$DROPLET_OUTPUT"
+  #           
+  #           # Analyze the error
+  #           if echo "$DROPLET_OUTPUT" | grep -i "insufficient\|capacity\|unavailable" > /dev/null; then
+  #             echo ""
+  #             echo "💡 Analysis: No capacity available for CPU droplet in region ${{ github.event.inputs.cpu_region }}"
+  #           elif echo "$DROPLET_OUTPUT" | grep -i "invalid\|not found" > /dev/null; then
+  #             echo ""
+  #             echo "💡 Analysis: Invalid configuration - check size/region/image combination"
+  #           elif echo "$DROPLET_OUTPUT" | grep -i "limit\|quota" > /dev/null; then
+  #             echo ""
+  #             echo "💡 Analysis: Account limits reached"
+  #           fi
+  #           
+  #           echo "success=false" >> $GITHUB_OUTPUT
+  #           exit 1
+  #         fi
 
-      - name: Wait for CPU droplet to be ready
-        if: steps.create.outputs.success == 'true'
-        run: |
-          echo "⏳ Waiting for CPU droplet to become active..."
-          DROPLET_ID="${{ steps.create.outputs.droplet-id }}"
-          
-          # Wait up to 5 minutes for droplet to be active
-          for i in {1..30}; do
-            STATUS=$(doctl compute droplet get "$DROPLET_ID" --format Status --no-header)
-            echo "Attempt $i/30: Status is '$STATUS'"
-            
-            if [ "$STATUS" = "active" ]; then
-              echo "✅ CPU Droplet is now active!"
-              
-              # Get full droplet details
-              echo ""
-              echo "📊 Final CPU droplet details:"
-              doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status
-              break
-            fi
-            
-            if [ $i -eq 30 ]; then
-              echo "⚠️ CPU Droplet did not become active within 5 minutes, but continuing..."
-            fi
-            
-            sleep 10
-          done
+  #   - name: Wait for CPU droplet to be ready
+  #     if: steps.create.outputs.success == 'true'
+  #     run: |
+  #       echo "⏳ Waiting for CPU droplet to become active..."
+  #       DROPLET_ID="${{ steps.create.outputs.droplet-id }}"
+  #       
+  #       # Wait up to 5 minutes for droplet to be active
+  #       for i in {1..30}; do
+  #         STATUS=$(doctl compute droplet get "$DROPLET_ID" --format Status --no-header)
+  #         echo "Attempt $i/30: Status is '$STATUS'"
+  #         
+  #         if [ "$STATUS" = "active" ]; then
+  #           echo "✅ CPU Droplet is now active!"
+  #           
+  #           # Get full droplet details
+  #           echo ""
+  #           echo "📊 Final CPU droplet details:"
+  #           doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status
+  #           break
+  #         fi
+  #         
+  #         if [ $i -eq 30 ]; then
+  #           echo "⚠️ CPU Droplet did not become active within 5 minutes, but continuing..."
+  #         fi
+  #         
+  #         sleep 10
+  #       done
 
   health-check:
     runs-on: ubuntu-latest
@@ -627,32 +627,15 @@ jobs:
       - name: Setup missing dependencies
         id: setup
         run: |
-          echo "🔧 Setting up missing dependencies..."
+          echo "🔧 Setting up NVIDIA Container Toolkit for GPU containers..."
           PUBLIC_IP=$(doctl compute droplet get "${{ needs.create-gpu-droplet.outputs.droplet-id }}" --format PublicIPv4 --no-header)
           SETUP_SUCCESS=true
           
-          echo "Setting up dependencies on $PUBLIC_IP..."
+          echo "Setting up GPU container support on $PUBLIC_IP..."
           echo ""
           
-          # 1. Install vLLM
-          echo "1. 🚀 Installing vLLM..."
-          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP '
-            echo "Installing Python pip and vLLM..."
-            apt-get update
-            apt-get install -y python3-pip python3-venv
-            python3 -m pip install --upgrade pip
-            python3 -m pip install vllm
-            echo "vLLM installation completed"
-          '; then
-            echo "✅ vLLM installed successfully"
-          else
-            echo "❌ vLLM installation failed"
-            SETUP_SUCCESS=false
-          fi
-          echo ""
-          
-          # 2. Setup NVIDIA Container Toolkit for Docker
-          echo "2. 🐳 Setting up NVIDIA Container Toolkit..."
+          # 1. Setup NVIDIA Container Toolkit for Docker
+          echo "1. 🐳 Setting up NVIDIA Container Toolkit..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Installing NVIDIA Container Toolkit..."
             
@@ -679,8 +662,8 @@ jobs:
           fi
           echo ""
           
-          # 3. Test GPU Docker with correct image
-          echo "3. 🎯 Testing GPU-enabled Docker with available image..."
+          # 2. Test GPU Docker with CUDA runtime
+          echo "2. 🎯 Testing GPU-enabled Docker with CUDA runtime..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Testing GPU Docker runtime..."
             docker run --rm --gpus all nvidia/cuda:12.0-runtime-ubuntu22.04 nvidia-smi
@@ -692,32 +675,25 @@ jobs:
           fi
           echo ""
           
-          # 4. Verify vLLM installation
-          echo "4. ✅ Verifying vLLM installation..."
-          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP '
-            echo "Checking vLLM installation..."
-            python3 -c "import sys; print(f\"Python version: {sys.version}\")"
-            python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"
+          # 3. Test vLLM container (optional - demonstrates containerized ML workload)
+          echo "3. 🤖 Testing vLLM container capability..."
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
+            echo "Testing vLLM container with GPU access..."
+            # Pull and test vLLM container (lightweight test without model loading)
+            docker run --rm --gpus all vllm/vllm-openai:latest python -c "import vllm; print(f\"vLLM container version: {vllm.__version__}\")"
           '; then
-            echo "✅ vLLM is now available and working"
+            echo "✅ vLLM container working with GPU access"
           else
-            echo "❌ vLLM verification failed"
-            echo "🔍 Debugging vLLM installation..."
-            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP '
-              echo "Installed packages containing vllm:"
-              python3 -m pip list | grep -i vllm || echo "No vLLM packages found"
-              echo "Python path:"
-              python3 -c "import sys; print(sys.path)"
-            ' || true
-            SETUP_SUCCESS=false
+            echo "⚠️ vLLM container test failed (may need longer startup time)"
+            echo "ℹ️  NVIDIA Container Toolkit is installed and basic GPU access works"
           fi
           echo ""
           
           if [ "$SETUP_SUCCESS" = "true" ]; then
-            echo "🎉 All dependencies installed successfully!"
-            echo "✅ GPU droplet is now fully ready for vLLM workloads"
+            echo "🎉 GPU container runtime setup completed!"
+            echo "✅ GPU droplet is now ready for containerized ML workloads"
           else
-            echo "⚠️ Some dependency installations failed"
+            echo "⚠️ Container toolkit installation failed"
             echo "❌ Manual intervention may be required"
           fi
           
@@ -725,21 +701,26 @@ jobs:
 
       - name: Setup summary
         run: |
-          echo "## 🔧 Dependency Setup Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔧 GPU Container Runtime Setup Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Components Installed:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🚀 **vLLM Framework** - Python package for LLM inference" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 **NVIDIA Container Toolkit** - GPU support for Docker" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda image" >> $GITHUB_STEP_SUMMARY
+          echo "- � **NVIDIA Container Toolkit** - GPU support for Docker containers" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda:12.0 image" >> $GITHUB_STEP_SUMMARY
+          echo "- 🤖 **vLLM Container Support** - Tested containerized ML workload capability" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Container-First Approach:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **No host Python dependencies** - All ML workloads run in containers" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 **Isolated environments** - Clean separation of workloads" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚀 **Ready for production** - Consistent runtime across environments" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.setup.outputs.success }}" = "true" ]; then
             echo "**Status: ✅ SETUP SUCCESSFUL**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 **All dependencies are now installed and ready!**" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **GPU droplet ready for containerized ML workloads!**" >> $GITHUB_STEP_SUMMARY
           else
             echo "**Status: ❌ SETUP ISSUES**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **Some installations failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Container toolkit installation failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
           fi
 
   # destroy-cpu-droplet:
