@@ -443,9 +443,10 @@ jobs:
           echo "1. 🚀 Installing vLLM..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP '
             echo "Installing Python pip and vLLM..."
-            apt-get update -qq
-            apt-get install -y python3-pip
-            pip3 install vllm
+            apt-get update
+            apt-get install -y python3-pip python3-venv
+            python3 -m pip install --upgrade pip
+            python3 -m pip install vllm
             echo "vLLM installation completed"
           '; then
             echo "✅ vLLM installed successfully"
@@ -484,10 +485,10 @@ jobs:
           echo ""
           
           # 3. Test GPU Docker with correct image
-          echo "3. 🎯 Testing GPU-enabled Docker with updated image..."
+          echo "3. 🎯 Testing GPU-enabled Docker with available image..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Testing GPU Docker runtime..."
-            docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi
+            docker run --rm --gpus all nvidia/cuda:12.0-runtime-ubuntu22.04 nvidia-smi
           '; then
             echo "✅ GPU Docker runtime working correctly"
           else
@@ -499,11 +500,20 @@ jobs:
           # 4. Verify vLLM installation
           echo "4. ✅ Verifying vLLM installation..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP '
+            echo "Checking vLLM installation..."
+            python3 -c "import sys; print(f\"Python version: {sys.version}\")"
             python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"
           '; then
             echo "✅ vLLM is now available and working"
           else
             echo "❌ vLLM verification failed"
+            echo "🔍 Debugging vLLM installation..."
+            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP '
+              echo "Installed packages containing vllm:"
+              python3 -m pip list | grep -i vllm || echo "No vLLM packages found"
+              echo "Python path:"
+              python3 -c "import sys; print(sys.path)"
+            ' || true
             SETUP_SUCCESS=false
           fi
           echo ""
