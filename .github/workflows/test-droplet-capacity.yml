@@ -1,7 +1,6 @@
 name: GPU Droplet Benchmarking
 
-# Note: To enable full SSH health checks, add your private SSH key as a GitHub Secret
-# named SSH_PRIVATE_KEY and uncomment the SSH key setup in the health-check job
+# Uses SSH_PRIVATE_KEY secret for droplet health checks
 
 on:
   workflow_dispatch:
@@ -252,15 +251,16 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           
-          # Create a temporary SSH key file from the DigitalOcean key
-          # Note: This assumes you have a private key that matches your DigitalOcean SSH keys
-          echo "Setting up SSH configuration..."
+          # Write the private key from GitHub secrets
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
           
           # Set SSH options for automated connections
           cat > ~/.ssh/config << EOF
           Host droplet-test
             HostName ${{ steps.get-ip.outputs.public-ip }}
             User root
+            IdentityFile ~/.ssh/id_rsa
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
             ConnectTimeout 30
@@ -268,7 +268,7 @@ jobs:
           EOF
           
           chmod 600 ~/.ssh/config
-          echo "✅ SSH config created"
+          echo "✅ SSH key and config created"
 
       - name: Wait for SSH to be ready
         run: |
@@ -297,33 +297,71 @@ jobs:
         run: |
           echo "🏥 Starting health check..."
           PUBLIC_IP="${{ steps.get-ip.outputs.public-ip }}"
+          HEALTH_SUCCESS=true
           
-          # Note: For this to work in a real scenario, you'd need to:
-          # 1. Have your private SSH key available in GitHub Secrets
-          # 2. Set it up properly for SSH authentication
-          # For now, we'll simulate the health check commands that would be run
-          
-          echo "Would run the following health checks on $PUBLIC_IP:"
-          echo ""
-          echo "1. Docker check:"
-          echo "   ssh root@$PUBLIC_IP 'docker --version && docker info'"
-          echo ""
-          echo "2. NVIDIA GPU check:"
-          echo "   ssh root@$PUBLIC_IP 'nvidia-smi'"
-          echo ""
-          echo "3. vLLM availability check:"
-          echo "   ssh root@$PUBLIC_IP 'python3 -c \"import vllm; print(vllm.__version__)\"'"
-          echo ""
-          echo "4. GPU-enabled Docker test:"
-          echo "   ssh root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'"
+          echo "Running health checks on $PUBLIC_IP..."
           echo ""
           
-          # For demonstration, we'll mark this as successful
-          # In a real implementation, you would run actual SSH commands
-          echo "🎯 Health check simulation completed"
-          echo "✅ All services would be verified on the GPU droplet"
+          # 1. Docker check
+          echo "1. 🐳 Checking Docker installation..."
+          if ssh -o ConnectTimeout=30 root@$PUBLIC_IP 'docker --version && docker info > /dev/null 2>&1'; then
+            echo "✅ Docker is installed and running"
+          else
+            echo "❌ Docker check failed"
+            HEALTH_SUCCESS=false
+          fi
+          echo ""
           
-          echo "success=true" >> $GITHUB_OUTPUT
+          # 2. NVIDIA GPU check
+          echo "2. 🔧 Checking NVIDIA GPU drivers..."
+          if ssh -o ConnectTimeout=30 root@$PUBLIC_IP 'nvidia-smi'; then
+            echo "✅ NVIDIA drivers working and GPU detected"
+          else
+            echo "❌ NVIDIA GPU check failed"
+            HEALTH_SUCCESS=false
+          fi
+          echo ""
+          
+          # 3. Python and vLLM availability check
+          echo "3. 🚀 Checking vLLM availability..."
+          if ssh -o ConnectTimeout=30 root@$PUBLIC_IP 'python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"'; then
+            echo "✅ vLLM is available"
+          else
+            echo "❌ vLLM check failed (may not be pre-installed)"
+            # Don't fail the health check for vLLM as it might need to be installed
+            echo "ℹ️  vLLM can be installed as needed"
+          fi
+          echo ""
+          
+          # 4. GPU-enabled Docker test
+          echo "4. 🎯 Testing GPU-enabled Docker runtime..."
+          if ssh -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'; then
+            echo "✅ GPU-enabled Docker containers work correctly"
+          else
+            echo "❌ GPU Docker runtime check failed"
+            HEALTH_SUCCESS=false
+          fi
+          echo ""
+          
+          # 5. System resources check
+          echo "5. 📊 Checking system resources..."
+          if ssh -o ConnectTimeout=30 root@$PUBLIC_IP 'df -h / && free -h && uptime'; then
+            echo "✅ System resources checked"
+          else
+            echo "❌ System resources check failed"
+            HEALTH_SUCCESS=false
+          fi
+          echo ""
+          
+          if [ "$HEALTH_SUCCESS" = "true" ]; then
+            echo "� All critical health checks passed!"
+            echo "✅ GPU droplet is ready for vLLM workloads"
+          else
+            echo "⚠️ Some health checks failed"
+            echo "❌ GPU droplet may not be fully ready"
+          fi
+          
+          echo "success=$HEALTH_SUCCESS" >> $GITHUB_OUTPUT
 
       - name: Health check summary
         run: |
@@ -333,13 +371,21 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Checks Performed:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SSH connectivity established" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Docker installation and service" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker installation and service status" >> $GITHUB_STEP_SUMMARY
           echo "- 🔧 NVIDIA drivers and GPU detection" >> $GITHUB_STEP_SUMMARY  
-          echo "- 🚀 vLLM framework availability" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎯 GPU-enabled container runtime" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚀 vLLM framework availability (optional)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 GPU-enabled Docker runtime test" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 System resources and uptime" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "*Note: This is currently a simulation. To enable real SSH health checks,*" >> $GITHUB_STEP_SUMMARY
-          echo "*add your private SSH key to GitHub Secrets and update the workflow.*" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.health.outputs.success }}" = "true" ]; then
+            echo "**Status: ✅ ALL CHECKS PASSED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **GPU droplet is ready for vLLM workloads!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status: ❌ SOME CHECKS FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **GPU droplet may need additional setup.**" >> $GITHUB_STEP_SUMMARY
+          fi
 
   destroy-droplet:
     runs-on: ubuntu-latest
