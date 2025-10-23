@@ -94,7 +94,7 @@ jobs:
             key_name=$(echo "$key_name" | xargs) # trim whitespace
             key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
             if [ -n "$SSH_KEY_IDS" ]; then
-              SSH_KEY_IDS="$SSH_KEY_IDS $key_id"
+              SSH_KEY_IDS="$SSH_KEY_IDS,$key_id"
             else
               SSH_KEY_IDS="$key_id"
             fi
@@ -140,7 +140,7 @@ jobs:
             
             # Get detailed droplet info for display
             echo "📊 Droplet details:"
-            doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created
+            doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status
             
             # Set outputs for next job
             echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
@@ -222,7 +222,7 @@ jobs:
           
           # Show droplet details before deletion
           echo "📊 Current droplet status:"
-          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status,Created || echo "Could not get droplet details"
+          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
           echo ""
           
           # Delete the droplet
