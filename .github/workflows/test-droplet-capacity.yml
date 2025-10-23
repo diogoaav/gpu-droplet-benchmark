@@ -727,52 +727,52 @@ jobs:
   #   runs-on: ubuntu-latest
   #   needs: [create-cpu-droplet]
   #   if: always() && needs.create-cpu-droplet.outputs.creation-success == 'true'
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install doctl
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-
-      - name: Destroy CPU droplet
-        run: |
-          DROPLET_ID="${{ needs.create-cpu-droplet.outputs.droplet-id }}"
-          DROPLET_NAME="${{ needs.create-cpu-droplet.outputs.droplet-name }}"
-          
-          echo "🧹 Destroying CPU test droplet..."
-          echo "Droplet ID: $DROPLET_ID"
-          echo "Droplet Name: $DROPLET_NAME"
-          echo ""
-          
-          # Show droplet details before deletion
-          echo "📊 Current CPU droplet status:"
-          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
-          echo ""
-          
-          # Delete the droplet
-          echo "🗑️ Deleting CPU droplet..."
-          if doctl compute droplet delete "$DROPLET_ID" --force; then
-            echo "✅ CPU Droplet deleted successfully!"
-            
-            # Verify deletion
-            echo ""
-            echo "🔍 Verifying deletion..."
-            sleep 5
-            
-            if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
-              echo "⚠️ CPU Droplet still exists, but deletion command succeeded (may take a moment)"
-            else
-              echo "✅ Confirmed: CPU Droplet has been completely removed"
-            fi
-          else
-            echo "❌ Failed to delete CPU droplet!"
-            echo "⚠️ IMPORTANT: Manual cleanup may be required!"
-            echo "Run: doctl compute droplet delete $DROPLET_ID --force"
-            exit 1
-          fi
+  #   
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Install doctl
+  #       uses: digitalocean/action-doctl@v2
+  #       with:
+  #         token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+  #
+  #     - name: Destroy CPU droplet
+  #       run: |
+  #         DROPLET_ID="${{ needs.create-cpu-droplet.outputs.droplet-id }}"
+  #         DROPLET_NAME="${{ needs.create-cpu-droplet.outputs.droplet-name }}"
+  #         
+  #         echo "🧹 Destroying CPU test droplet..."
+  #         echo "Droplet ID: $DROPLET_ID"
+  #         echo "Droplet Name: $DROPLET_NAME"
+  #         echo ""
+  #         
+  #         # Show droplet details before deletion
+  #         echo "📊 Current CPU droplet status:"
+  #         doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
+  #         echo ""
+  #         
+  #         # Delete the droplet
+  #         echo "🗑️ Deleting CPU droplet..."
+  #         if doctl compute droplet delete "$DROPLET_ID" --force; then
+  #           echo "✅ CPU Droplet deleted successfully!"
+  #           
+  #           # Verify deletion
+  #           echo ""
+  #           echo "🔍 Verifying deletion..."
+  #           sleep 5
+  #           
+  #           if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
+  #             echo "⚠️ CPU Droplet still exists, but deletion command succeeded (may take a moment)"
+  #           else
+  #             echo "✅ Confirmed: CPU Droplet has been completely removed"
+  #           fi
+  #         else
+  #           echo "❌ Failed to delete CPU droplet!"
+  #           echo "⚠️ IMPORTANT: Manual cleanup may be required!"
+  #           echo "Run: doctl compute droplet delete $DROPLET_ID --force"
+  #           exit 1
+  #         fi
 
   # destroy-droplet:
   #   runs-on: ubuntu-latest
