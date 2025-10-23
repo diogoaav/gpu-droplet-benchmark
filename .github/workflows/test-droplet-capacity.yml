@@ -275,10 +275,17 @@ jobs:
           echo "⏳ Waiting for SSH service to be ready..."
           PUBLIC_IP="${{ steps.get-ip.outputs.public-ip }}"
           
+          # Debug SSH setup
+          echo "🔍 SSH setup verification:"
+          echo "Private key exists: $([ -f ~/.ssh/id_rsa ] && echo 'YES' || echo 'NO')"
+          echo "Private key permissions: $(stat -c %a ~/.ssh/id_rsa 2>/dev/null || echo 'N/A')"
+          echo "SSH config exists: $([ -f ~/.ssh/config ] && echo 'YES' || echo 'NO')"
+          echo ""
+          
           # Test actual SSH connectivity with key authentication
           for i in {1..30}; do
             echo "Attempt $i/30: Testing SSH connection..."
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 root@$PUBLIC_IP 'echo "SSH connection successful"' 2>/dev/null; then
+            if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 root@$PUBLIC_IP 'echo "SSH connection successful"' 2>/dev/null; then
               echo "✅ SSH connection established!"
               sleep 2  # Give it a moment to fully initialize
               break
@@ -286,6 +293,8 @@ jobs:
             
             if [ $i -eq 30 ]; then
               echo "❌ SSH service did not become ready within 5 minutes"
+              echo "🔍 Final SSH debug attempt:"
+              ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -v root@$PUBLIC_IP 'echo "Debug connection"' || true
               exit 1
             fi
             
@@ -302,9 +311,17 @@ jobs:
           echo "Running health checks on $PUBLIC_IP..."
           echo ""
           
+          # Debug SSH connection
+          echo "🔍 Testing SSH connection first..."
+          ssh -F ~/.ssh/config -o ConnectTimeout=10 droplet-test 'echo "SSH test successful"' || {
+            echo "❌ SSH connection failed, trying direct connection..."
+            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 root@$PUBLIC_IP 'echo "Direct SSH test successful"'
+          }
+          echo ""
+          
           # 1. Docker check
           echo "1. 🐳 Checking Docker installation..."
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'docker --version && docker info > /dev/null 2>&1'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'docker --version && docker info > /dev/null 2>&1'; then
             echo "✅ Docker is installed and running"
           else
             echo "❌ Docker check failed"
@@ -314,7 +331,7 @@ jobs:
           
           # 2. NVIDIA GPU check
           echo "2. 🔧 Checking NVIDIA GPU drivers..."
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'nvidia-smi'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'nvidia-smi'; then
             echo "✅ NVIDIA drivers working and GPU detected"
           else
             echo "❌ NVIDIA GPU check failed"
@@ -324,7 +341,7 @@ jobs:
           
           # 3. Python and vLLM availability check
           echo "3. 🚀 Checking vLLM availability..."
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"'; then
             echo "✅ vLLM is available"
           else
             echo "❌ vLLM check failed (may not be pre-installed)"
@@ -335,7 +352,7 @@ jobs:
           
           # 4. GPU-enabled Docker test
           echo "4. 🎯 Testing GPU-enabled Docker runtime..."
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'; then
             echo "✅ GPU-enabled Docker containers work correctly"
           else
             echo "❌ GPU Docker runtime check failed"
@@ -345,7 +362,7 @@ jobs:
           
           # 5. System resources check
           echo "5. 📊 Checking system resources..."
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'df -h / && free -h && uptime'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'df -h / && free -h && uptime'; then
             echo "✅ System resources checked"
           else
             echo "❌ System resources check failed"
