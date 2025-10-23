@@ -27,7 +27,7 @@ on:
         default: 'github-actions, macbook'
 
 jobs:
-  create-droplet:
+  create-gpu-droplet:
     runs-on: ubuntu-latest
     outputs:
       droplet-id: ${{ steps.create.outputs.droplet-id }}
@@ -198,10 +198,162 @@ jobs:
             sleep 10
           done
 
+  create-cpu-droplet:
+    runs-on: ubuntu-latest
+    outputs:
+      droplet-id: ${{ steps.create.outputs.droplet-id }}
+      droplet-name: ${{ steps.create.outputs.droplet-name }}
+      creation-success: ${{ steps.create.outputs.success }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Validate SSH keys
+        run: |
+          echo "🔍 Validating SSH keys for CPU droplet..."
+          
+          # Validate predefined SSH keys
+          SSH_KEY_NAMES="github-actions,macbook"
+          IFS=',' read -ra SSH_KEYS <<< "$SSH_KEY_NAMES"
+          for key_name in "${SSH_KEYS[@]}"; do
+            key_name=$(echo "$key_name" | xargs) # trim whitespace
+            if ! doctl compute ssh-key list --format Name --no-header | grep -q "^${key_name}$"; then
+              echo "❌ Error: SSH key name '${key_name}' not found!"
+              echo "Available SSH keys:"
+              doctl compute ssh-key list --format ID,Name,Fingerprint
+              exit 1
+            fi
+          done
+          echo "✅ All SSH key names are valid"
+
+      - name: Create CPU droplet
+        id: create
+        run: |
+          # Generate unique droplet name
+          DROPLET_NAME="cpu-droplet-benchmark-$(date +%s)"
+          echo "🚀 Creating CPU droplet: $DROPLET_NAME"
+          
+          # Convert SSH key names to IDs for CPU droplet
+          echo "Converting SSH key names to IDs..."
+          SSH_KEY_IDS=""
+          SSH_KEY_NAMES="github-actions,macbook"
+          IFS=',' read -ra SSH_KEYS <<< "$SSH_KEY_NAMES"
+          for key_name in "${SSH_KEYS[@]}"; do
+            key_name=$(echo "$key_name" | xargs) # trim whitespace
+            key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
+            if [ -n "$SSH_KEY_IDS" ]; then
+              SSH_KEY_IDS="$SSH_KEY_IDS,$key_id"
+            else
+              SSH_KEY_IDS="$key_id"
+            fi
+            echo "  '$key_name' → ID: $key_id"
+          done
+          
+          echo ""
+          echo "CPU Droplet Configuration:"
+          echo "  Name: $DROPLET_NAME"
+          echo "  Size: c-2"
+          echo "  Region: tor1"
+          echo "  Image: ubuntu-24-04-x64"
+          echo "  SSH Key Names: github-actions, macbook"
+          echo "  SSH Key IDs: $SSH_KEY_IDS"
+          echo ""
+          
+          # Create the CPU droplet
+          echo "⏳ Creating CPU droplet..."
+          if DROPLET_OUTPUT=$(doctl compute droplet create "$DROPLET_NAME" \
+            --size "c-2" \
+            --region "tor1" \
+            --image "ubuntu-24-04-x64" \
+            --ssh-keys $SSH_KEY_IDS \
+            --tag-names "cpu-droplet-benchmark,github-actions" \
+            --format ID \
+            --no-header 2>&1); then
+            
+            # Extract droplet ID - should be a single line with just the ID
+            DROPLET_ID=$(echo "$DROPLET_OUTPUT" | head -n1 | xargs)
+            
+            # Validate we got a single numeric ID
+            if [[ ! "$DROPLET_ID" =~ ^[0-9]+$ ]]; then
+              echo "❌ ERROR: Invalid droplet ID received: '$DROPLET_ID'"
+              echo "Full output was:"
+              echo "$DROPLET_OUTPUT"
+              exit 1
+            fi
+            
+            echo "🎉 SUCCESS: CPU Droplet created successfully!"
+            echo "Droplet ID: $DROPLET_ID"
+            echo "Droplet Name: $DROPLET_NAME"
+            echo ""
+            
+            # Get detailed droplet info for display
+            echo "📊 CPU Droplet details:"
+            doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status
+            
+            # Set outputs for next job
+            echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
+            echo "droplet-name=$DROPLET_NAME" >> $GITHUB_OUTPUT
+            echo "success=true" >> $GITHUB_OUTPUT
+            
+          else
+            echo "❌ FAILED: Could not create CPU droplet"
+            echo "Error details:"
+            echo "$DROPLET_OUTPUT"
+            
+            # Analyze the error
+            if echo "$DROPLET_OUTPUT" | grep -i "insufficient\|capacity\|unavailable" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: No capacity available for CPU droplet in region tor1"
+            elif echo "$DROPLET_OUTPUT" | grep -i "invalid\|not found" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: Invalid configuration - check size/region/image combination"
+            elif echo "$DROPLET_OUTPUT" | grep -i "limit\|quota" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: Account limits reached"
+            fi
+            
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Wait for CPU droplet to be ready
+        if: steps.create.outputs.success == 'true'
+        run: |
+          echo "⏳ Waiting for CPU droplet to become active..."
+          DROPLET_ID="${{ steps.create.outputs.droplet-id }}"
+          
+          # Wait up to 5 minutes for droplet to be active
+          for i in {1..30}; do
+            STATUS=$(doctl compute droplet get "$DROPLET_ID" --format Status --no-header)
+            echo "Attempt $i/30: Status is '$STATUS'"
+            
+            if [ "$STATUS" = "active" ]; then
+              echo "✅ CPU Droplet is now active!"
+              
+              # Get full droplet details
+              echo ""
+              echo "📊 Final CPU droplet details:"
+              doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status
+              break
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "⚠️ CPU Droplet did not become active within 5 minutes, but continuing..."
+            fi
+            
+            sleep 10
+          done
+
   health-check:
     runs-on: ubuntu-latest
-    needs: create-droplet
-    if: needs.create-droplet.outputs.creation-success == 'true'
+    needs: create-gpu-droplet
+    if: needs.create-gpu-droplet.outputs.creation-success == 'true'
     outputs:
       health-check-success: ${{ steps.health.outputs.success }}
     
@@ -217,7 +369,7 @@ jobs:
       - name: Get droplet IP address
         id: get-ip
         run: |
-          DROPLET_ID="${{ needs.create-droplet.outputs.droplet-id }}"
+          DROPLET_ID="${{ needs.create-gpu-droplet.outputs.droplet-id }}"
           echo "Getting IP address for droplet $DROPLET_ID..."
           
           # Wait a bit more for IP to be assigned
@@ -406,8 +558,8 @@ jobs:
 
   setup-dependencies:
     runs-on: ubuntu-latest
-    needs: [create-droplet, health-check]
-    if: needs.create-droplet.outputs.creation-success == 'true'
+    needs: [create-gpu-droplet, health-check]
+    if: needs.create-gpu-droplet.outputs.creation-success == 'true'
     outputs:
       setup-success: ${{ steps.setup.outputs.success }}
     
@@ -433,7 +585,7 @@ jobs:
         id: setup
         run: |
           echo "🔧 Setting up missing dependencies..."
-          PUBLIC_IP=$(doctl compute droplet get "${{ needs.create-droplet.outputs.droplet-id }}" --format PublicIPv4 --no-header)
+          PUBLIC_IP=$(doctl compute droplet get "${{ needs.create-gpu-droplet.outputs.droplet-id }}" --format PublicIPv4 --no-header)
           SETUP_SUCCESS=true
           
           echo "Setting up dependencies on $PUBLIC_IP..."
@@ -547,6 +699,57 @@ jobs:
             echo "⚠️ **Some installations failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
           fi
 
+  destroy-cpu-droplet:
+    runs-on: ubuntu-latest
+    needs: [create-cpu-droplet]
+    if: always() && needs.create-cpu-droplet.outputs.creation-success == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Destroy CPU droplet
+        run: |
+          DROPLET_ID="${{ needs.create-cpu-droplet.outputs.droplet-id }}"
+          DROPLET_NAME="${{ needs.create-cpu-droplet.outputs.droplet-name }}"
+          
+          echo "🧹 Destroying CPU test droplet..."
+          echo "Droplet ID: $DROPLET_ID"
+          echo "Droplet Name: $DROPLET_NAME"
+          echo ""
+          
+          # Show droplet details before deletion
+          echo "📊 Current CPU droplet status:"
+          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
+          echo ""
+          
+          # Delete the droplet
+          echo "🗑️ Deleting CPU droplet..."
+          if doctl compute droplet delete "$DROPLET_ID" --force; then
+            echo "✅ CPU Droplet deleted successfully!"
+            
+            # Verify deletion
+            echo ""
+            echo "🔍 Verifying deletion..."
+            sleep 5
+            
+            if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
+              echo "⚠️ CPU Droplet still exists, but deletion command succeeded (may take a moment)"
+            else
+              echo "✅ Confirmed: CPU Droplet has been completely removed"
+            fi
+          else
+            echo "❌ Failed to delete CPU droplet!"
+            echo "⚠️ IMPORTANT: Manual cleanup may be required!"
+            echo "Run: doctl compute droplet delete $DROPLET_ID --force"
+            exit 1
+          fi
+
   # destroy-droplet:
   #   runs-on: ubuntu-latest
   #   needs: [create-droplet, health-check]
@@ -600,7 +803,7 @@ jobs:
 
   summary:
     runs-on: ubuntu-latest
-    needs: [create-droplet, health-check, setup-dependencies]
+    needs: [create-gpu-droplet, create-cpu-droplet, health-check, setup-dependencies, destroy-cpu-droplet]
     if: always()
     
     steps:
@@ -609,81 +812,122 @@ jobs:
           echo "## 🧪 Droplet Capacity Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "**GPU Droplet Configuration:**" >> $GITHUB_STEP_SUMMARY
           echo "- **Slug:** \`${{ github.event.inputs.slug }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Region:** \`${{ github.event.inputs.region }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ github.event.inputs.image }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **SSH Key Names:** \`${{ github.event.inputs.ssh_keys }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check creation result
-          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
-            echo "### ✅ Creation: SUCCESS" >> $GITHUB_STEP_SUMMARY
-            echo "- **Droplet ID:** \`${{ needs.create-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Droplet Name:** \`${{ needs.create-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**CPU Droplet Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Slug:** \`c-2\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`tor1\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`ubuntu-24-04-x64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SSH Key Names:** \`github-actions, macbook\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check GPU creation result
+          if [ "${{ needs.create-gpu-droplet.outputs.creation-success }}" = "true" ]; then
+            echo "### ✅ GPU Creation: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet ID:** \`${{ needs.create-gpu-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet Name:** \`${{ needs.create-gpu-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 **Capacity is available!** The droplet was created successfully." >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **GPU Capacity is available!** The GPU droplet was created successfully." >> $GITHUB_STEP_SUMMARY
           else
-            echo "### ❌ Creation: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ GPU Creation: FAILED" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **No capacity available** or configuration issue." >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **No GPU capacity available** or configuration issue." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check health check result
-          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
+          # Check CPU creation result
+          if [ "${{ needs.create-cpu-droplet.outputs.creation-success }}" = "true" ]; then
+            echo "### ✅ CPU Creation: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet ID:** \`${{ needs.create-cpu-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet Name:** \`${{ needs.create-cpu-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **CPU Capacity is available!** The CPU droplet was created successfully." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ CPU Creation: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **No CPU capacity available** or configuration issue." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check health check result (GPU only)
+          if [ "${{ needs.create-gpu-droplet.outputs.creation-success }}" = "true" ]; then
             if [ "${{ needs.health-check.outputs.health-check-success }}" = "true" ]; then
-              echo "### 🏥 Health Check: SUCCESS" >> $GITHUB_STEP_SUMMARY
-              echo "✅ All services (Docker, NVIDIA, vLLM) are ready on the droplet." >> $GITHUB_STEP_SUMMARY
+              echo "### 🏥 GPU Health Check: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              echo "✅ All services (Docker, NVIDIA, vLLM) are ready on the GPU droplet." >> $GITHUB_STEP_SUMMARY
             else
-              echo "### ⚠️ Health Check: FAILED" >> $GITHUB_STEP_SUMMARY
-              echo "❌ Some services may not be properly configured." >> $GITHUB_STEP_SUMMARY
+              echo "### ⚠️ GPU Health Check: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "❌ Some services may not be properly configured on GPU droplet." >> $GITHUB_STEP_SUMMARY
             fi
           else
-            echo "### ℹ️ Health Check: SKIPPED" >> $GITHUB_STEP_SUMMARY
-            echo "No droplet was created, so health check was skipped." >> $GITHUB_STEP_SUMMARY
+            echo "### ℹ️ GPU Health Check: SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "No GPU droplet was created, so health check was skipped." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check setup result
-          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
+          # Check setup result (GPU only)
+          if [ "${{ needs.create-gpu-droplet.outputs.creation-success }}" = "true" ]; then
             if [ "${{ needs.setup-dependencies.outputs.setup-success }}" = "true" ]; then
-              echo "### 🔧 Dependency Setup: SUCCESS" >> $GITHUB_STEP_SUMMARY
-              echo "✅ All missing components (vLLM, NVIDIA Container Toolkit) installed successfully." >> $GITHUB_STEP_SUMMARY
+              echo "### 🔧 GPU Dependency Setup: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              echo "✅ All missing components (vLLM, NVIDIA Container Toolkit) installed successfully on GPU droplet." >> $GITHUB_STEP_SUMMARY
             elif [ "${{ needs.setup-dependencies.result }}" = "failure" ]; then
-              echo "### ❌ Dependency Setup: FAILED" >> $GITHUB_STEP_SUMMARY
-              echo "❌ Some dependencies failed to install properly." >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ GPU Dependency Setup: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "❌ Some dependencies failed to install properly on GPU droplet." >> $GITHUB_STEP_SUMMARY
             else
-              echo "### ⚠️ Dependency Setup: SKIPPED" >> $GITHUB_STEP_SUMMARY
+              echo "### ⚠️ GPU Dependency Setup: SKIPPED" >> $GITHUB_STEP_SUMMARY
               echo "ℹ️ Setup job was skipped or didn't run." >> $GITHUB_STEP_SUMMARY
             fi
           else
-            echo "### ℹ️ Dependency Setup: SKIPPED" >> $GITHUB_STEP_SUMMARY
-            echo "No droplet was created, so setup was skipped." >> $GITHUB_STEP_SUMMARY
+            echo "### ℹ️ GPU Dependency Setup: SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "No GPU droplet was created, so setup was skipped." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check destruction result
-          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
-            echo "### ⚠️ Cleanup: DISABLED" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 **Automatic cleanup is currently disabled.**" >> $GITHUB_STEP_SUMMARY
+          # Check CPU destruction result
+          if [ "${{ needs.create-cpu-droplet.outputs.creation-success }}" = "true" ]; then
+            if [ "${{ needs.destroy-cpu-droplet.result }}" = "success" ]; then
+              echo "### ✅ CPU Cleanup: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              echo "🧹 **CPU droplet was automatically destroyed.**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ CPU Cleanup: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ **CPU droplet cleanup failed. Manual cleanup required:**" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+              echo "doctl compute droplet delete ${{ needs.create-cpu-droplet.outputs.droplet-id }} --force" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ CPU Cleanup: SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "No CPU droplet was created, so no cleanup needed." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check GPU destruction result (manual cleanup needed)
+          if [ "${{ needs.create-gpu-droplet.outputs.creation-success }}" = "true" ]; then
+            echo "### ⚠️ GPU Cleanup: MANUAL REQUIRED" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 **Automatic GPU cleanup is currently disabled.**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Manual cleanup required:**" >> $GITHUB_STEP_SUMMARY
+            echo "**Manual GPU cleanup required:**" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-            echo "doctl compute droplet delete ${{ needs.create-droplet.outputs.droplet-id }} --force" >> $GITHUB_STEP_SUMMARY
+            echo "doctl compute droplet delete ${{ needs.create-gpu-droplet.outputs.droplet-id }} --force" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Droplet Details:**" >> $GITHUB_STEP_SUMMARY
-            echo "- **ID:** \`${{ needs.create-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Name:** \`${{ needs.create-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**GPU Droplet Details:**" >> $GITHUB_STEP_SUMMARY
+            echo "- **ID:** \`${{ needs.create-gpu-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Name:** \`${{ needs.create-gpu-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### ℹ️ Cleanup: SKIPPED" >> $GITHUB_STEP_SUMMARY
-            echo "No droplet was created, so no cleanup needed." >> $GITHUB_STEP_SUMMARY
+            echo "### ℹ️ GPU Cleanup: SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "No GPU droplet was created, so no cleanup needed." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "*This test creates a real droplet to verify capacity, then immediately destroys it.*" >> $GITHUB_STEP_SUMMARY
+          echo "*This test creates both GPU and CPU droplets to verify capacity. CPU droplet is automatically destroyed, GPU droplet requires manual cleanup.*" >> $GITHUB_STEP_SUMMARY
