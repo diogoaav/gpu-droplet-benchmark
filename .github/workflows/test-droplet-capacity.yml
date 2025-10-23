@@ -1,0 +1,273 @@
+name: Test Droplet Capacity
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Droplet size slug (e.g., s-1vcpu-1gb, g-2vcpu-8gb-nvidia-l4)'
+        required: true
+        type: string
+      region:
+        description: 'DigitalOcean region (e.g., nyc1, nyc3, sfo3, tor1)'
+        required: true
+        type: string
+        default: 'nyc3'
+      image:
+        description: 'Droplet image (e.g., ubuntu-22-04-x64, gpu-h100x8-base)'
+        required: true
+        type: string
+        default: 'ubuntu-22-04-x64'
+      ssh_keys:
+        description: 'SSH key IDs (comma-separated, get with: doctl compute ssh-key list)'
+        required: true
+        type: string
+
+jobs:
+  create-droplet:
+    runs-on: ubuntu-latest
+    outputs:
+      droplet-id: ${{ steps.create.outputs.droplet-id }}
+      droplet-name: ${{ steps.create.outputs.droplet-name }}
+      creation-success: ${{ steps.create.outputs.success }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Validate inputs
+        run: |
+          echo "🔍 Validating inputs..."
+          
+          # Check if region exists
+          echo "Checking region: ${{ github.event.inputs.region }}"
+          if ! doctl compute region list --format Slug --no-header | grep -q "^${{ github.event.inputs.region }}$"; then
+            echo "❌ Error: Region '${{ github.event.inputs.region }}' not found!"
+            echo "Available regions:"
+            doctl compute region list --format Slug,Name,Available
+            exit 1
+          fi
+          echo "✅ Region '${{ github.event.inputs.region }}' is valid"
+          
+          # Check if size exists
+          echo "Checking droplet size: ${{ github.event.inputs.slug }}"
+          if ! doctl compute size list --format Slug --no-header | grep -q "^${{ github.event.inputs.slug }}$"; then
+            echo "❌ Error: Droplet size '${{ github.event.inputs.slug }}' not found!"
+            echo "Available sizes:"
+            doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly
+            exit 1
+          fi
+          echo "✅ Droplet size '${{ github.event.inputs.slug }}' is valid"
+          
+          # Validate SSH keys
+          echo "Validating SSH keys: ${{ github.event.inputs.ssh_keys }}"
+          IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.ssh_keys }}"
+          for key_id in "${SSH_KEYS[@]}"; do
+            key_id=$(echo "$key_id" | xargs) # trim whitespace
+            if ! doctl compute ssh-key list --format ID --no-header | grep -q "^${key_id}$"; then
+              echo "❌ Error: SSH key ID '${key_id}' not found!"
+              echo "Available SSH keys:"
+              doctl compute ssh-key list --format ID,Name,Fingerprint
+              exit 1
+            fi
+          done
+          echo "✅ All SSH keys are valid"
+
+      - name: Create droplet
+        id: create
+        run: |
+          # Generate unique droplet name
+          DROPLET_NAME="test-capacity-$(date +%s)"
+          echo "🚀 Creating droplet: $DROPLET_NAME"
+          
+          # Convert comma-separated SSH keys to space-separated for doctl
+          SSH_KEYS_FORMATTED=$(echo "${{ github.event.inputs.ssh_keys }}" | tr ',' ' ')
+          
+          echo "Configuration:"
+          echo "  Name: $DROPLET_NAME"
+          echo "  Size: ${{ github.event.inputs.slug }}"
+          echo "  Region: ${{ github.event.inputs.region }}"
+          echo "  Image: ${{ github.event.inputs.image }}"
+          echo "  SSH Keys: $SSH_KEYS_FORMATTED"
+          echo ""
+          
+          # Create the droplet
+          echo "⏳ Creating droplet..."
+          if DROPLET_OUTPUT=$(doctl compute droplet create "$DROPLET_NAME" \
+            --size "${{ github.event.inputs.slug }}" \
+            --region "${{ github.event.inputs.region }}" \
+            --image "${{ github.event.inputs.image }}" \
+            --ssh-keys $SSH_KEYS_FORMATTED \
+            --tag-names "capacity-test,github-actions" \
+            --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created \
+            --no-header 2>&1); then
+            
+            # Extract droplet ID (first column)
+            DROPLET_ID=$(echo "$DROPLET_OUTPUT" | awk '{print $1}')
+            
+            echo "🎉 SUCCESS: Droplet created successfully!"
+            echo "$DROPLET_OUTPUT"
+            echo ""
+            echo "Droplet ID: $DROPLET_ID"
+            echo "Droplet Name: $DROPLET_NAME"
+            
+            # Set outputs for next job
+            echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
+            echo "droplet-name=$DROPLET_NAME" >> $GITHUB_OUTPUT
+            echo "success=true" >> $GITHUB_OUTPUT
+            
+          else
+            echo "❌ FAILED: Could not create droplet"
+            echo "Error details:"
+            echo "$DROPLET_OUTPUT"
+            
+            # Analyze the error
+            if echo "$DROPLET_OUTPUT" | grep -i "insufficient\|capacity\|unavailable" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: No capacity available for this droplet size in region ${{ github.event.inputs.region }}"
+            elif echo "$DROPLET_OUTPUT" | grep -i "invalid\|not found" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: Invalid configuration - check size/region/image combination"
+            elif echo "$DROPLET_OUTPUT" | grep -i "limit\|quota" > /dev/null; then
+              echo ""
+              echo "💡 Analysis: Account limits reached"
+            fi
+            
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Wait for droplet to be ready
+        if: steps.create.outputs.success == 'true'
+        run: |
+          echo "⏳ Waiting for droplet to become active..."
+          DROPLET_ID="${{ steps.create.outputs.droplet-id }}"
+          
+          # Wait up to 5 minutes for droplet to be active
+          for i in {1..30}; do
+            STATUS=$(doctl compute droplet get "$DROPLET_ID" --format Status --no-header)
+            echo "Attempt $i/30: Status is '$STATUS'"
+            
+            if [ "$STATUS" = "active" ]; then
+              echo "✅ Droplet is now active!"
+              
+              # Get full droplet details
+              echo ""
+              echo "📊 Final droplet details:"
+              doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status,Created
+              break
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "⚠️ Droplet did not become active within 5 minutes, but continuing..."
+            fi
+            
+            sleep 10
+          done
+
+  destroy-droplet:
+    runs-on: ubuntu-latest
+    needs: create-droplet
+    if: always() && needs.create-droplet.outputs.creation-success == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Destroy droplet
+        run: |
+          DROPLET_ID="${{ needs.create-droplet.outputs.droplet-id }}"
+          DROPLET_NAME="${{ needs.create-droplet.outputs.droplet-name }}"
+          
+          echo "🧹 Destroying test droplet..."
+          echo "Droplet ID: $DROPLET_ID"
+          echo "Droplet Name: $DROPLET_NAME"
+          echo ""
+          
+          # Show droplet details before deletion
+          echo "📊 Current droplet status:"
+          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status,Created || echo "Could not get droplet details"
+          echo ""
+          
+          # Delete the droplet
+          echo "🗑️ Deleting droplet..."
+          if doctl compute droplet delete "$DROPLET_ID" --force; then
+            echo "✅ Droplet deleted successfully!"
+            
+            # Verify deletion
+            echo ""
+            echo "🔍 Verifying deletion..."
+            sleep 5
+            
+            if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
+              echo "⚠️ Droplet still exists, but deletion command succeeded (may take a moment)"
+            else
+              echo "✅ Confirmed: Droplet has been completely removed"
+            fi
+          else
+            echo "❌ Failed to delete droplet!"
+            echo "⚠️ IMPORTANT: Manual cleanup may be required!"
+            echo "Run: doctl compute droplet delete $DROPLET_ID --force"
+            exit 1
+          fi
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [create-droplet, destroy-droplet]
+    if: always()
+    
+    steps:
+      - name: Generate workflow summary
+        run: |
+          echo "## 🧪 Droplet Capacity Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Slug:** \`${{ github.event.inputs.slug }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`${{ github.event.inputs.region }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ github.event.inputs.image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SSH Keys:** \`${{ github.event.inputs.ssh_keys }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check creation result
+          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
+            echo "### ✅ Creation: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet ID:** \`${{ needs.create-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Droplet Name:** \`${{ needs.create-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **Capacity is available!** The droplet was created successfully." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Creation: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **No capacity available** or configuration issue." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check destruction result
+          if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
+            if [ "${{ needs.destroy-droplet.result }}" = "success" ]; then
+              echo "### 🧹 Cleanup: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              echo "✅ Test droplet was destroyed successfully." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ⚠️ Cleanup: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "❌ **IMPORTANT:** Test droplet may still exist!" >> $GITHUB_STEP_SUMMARY
+              echo "**Manual cleanup required:** \`doctl compute droplet delete ${{ needs.create-droplet.outputs.droplet-id }} --force\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ Cleanup: SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "No droplet was created, so no cleanup needed." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*This test creates a real droplet to verify capacity, then immediately destroys it.*" >> $GITHUB_STEP_SUMMARY
