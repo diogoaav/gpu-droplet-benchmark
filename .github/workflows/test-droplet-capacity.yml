@@ -117,17 +117,28 @@ jobs:
             --image "${{ github.event.inputs.image }}" \
             --ssh-keys $SSH_KEY_IDS \
             --tag-names "gpu-droplet-benchmark,github-actions" \
-            --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created \
+            --format ID \
             --no-header 2>&1); then
             
-            # Extract droplet ID (first column)
-            DROPLET_ID=$(echo "$DROPLET_OUTPUT" | awk '{print $1}')
+            # Extract droplet ID - should be a single line with just the ID
+            DROPLET_ID=$(echo "$DROPLET_OUTPUT" | head -n1 | xargs)
+            
+            # Validate we got a single numeric ID
+            if [[ ! "$DROPLET_ID" =~ ^[0-9]+$ ]]; then
+              echo "❌ ERROR: Invalid droplet ID received: '$DROPLET_ID'"
+              echo "Full output was:"
+              echo "$DROPLET_OUTPUT"
+              exit 1
+            fi
             
             echo "🎉 SUCCESS: Droplet created successfully!"
-            echo "$DROPLET_OUTPUT"
-            echo ""
             echo "Droplet ID: $DROPLET_ID"
             echo "Droplet Name: $DROPLET_NAME"
+            echo ""
+            
+            # Get detailed droplet info for display
+            echo "📊 Droplet details:"
+            doctl compute droplet get "$DROPLET_ID" --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created
             
             # Set outputs for next job
             echo "droplet-id=$DROPLET_ID" >> $GITHUB_OUTPUT
