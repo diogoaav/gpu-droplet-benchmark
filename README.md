@@ -1,6 +1,8 @@
-# GPU Droplet Benchmark
+# GPU Droplet Benchmark# GPU Droplet Benchmark
 
-This repository contains tools and workflows for benchmarking DigitalOcean GPU droplets and checking droplet capacity across different regions.
+
+
+A GitHub Actions workflow for testing DigitalOcean droplet capacity by creating and destroying test droplets.This repository contains tools and workflows for benchmarking DigitalOcean GPU droplets and checking droplet capacity across different regions.
 
 ## 🚀 Features
 
