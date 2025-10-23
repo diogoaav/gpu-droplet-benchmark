@@ -533,23 +533,24 @@ jobs:
           fi
           echo ""
           
-          # 3. Python and vLLM availability check
-          echo "3. 🚀 Checking vLLM availability..."
-          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'python3 -c "import vllm; print(f\"vLLM version: {vllm.__version__}\")"'; then
-            echo "✅ vLLM is available"
+          # 3. NVIDIA Container Toolkit check
+          echo "3. � Checking NVIDIA Container Toolkit availability..."
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 root@$PUBLIC_IP 'nvidia-ctk --version && docker info | grep -i nvidia'; then
+            echo "✅ NVIDIA Container Toolkit is available"
           else
-            echo "❌ vLLM check failed (may not be pre-installed)"
-            # Don't fail the health check for vLLM as it might need to be installed
-            echo "ℹ️  vLLM can be installed as needed"
+            echo "❌ NVIDIA Container Toolkit not found (may need installation)"
+            # Don't fail health check as this can be installed later
+            echo "ℹ️  Can be installed via setup-dependencies job"
           fi
           echo ""
           
-          # 4. GPU-enabled Docker test
-          echo "4. 🎯 Testing GPU-enabled Docker runtime..."
+          # 4. GPU-enabled Docker runtime test
+          echo "4. 🎯 Testing GPU access in Docker containers..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'; then
             echo "✅ GPU-enabled Docker containers work correctly"
           else
             echo "❌ GPU Docker runtime check failed"
+            echo "ℹ️  This may work after installing NVIDIA Container Toolkit"
             HEALTH_SUCCESS=false
           fi
           echo ""
@@ -565,11 +566,11 @@ jobs:
           echo ""
           
           if [ "$HEALTH_SUCCESS" = "true" ]; then
-            echo "� All critical health checks passed!"
-            echo "✅ GPU droplet is ready for vLLM workloads"
+            echo "🎉 All critical health checks passed!"
+            echo "✅ GPU droplet is ready for containerized workloads"
           else
             echo "⚠️ Some health checks failed"
-            echo "❌ GPU droplet may not be fully ready"
+            echo "❌ GPU droplet may need additional setup for GPU containers"
           fi
           
           echo "success=$HEALTH_SUCCESS" >> $GITHUB_OUTPUT
@@ -584,14 +585,14 @@ jobs:
           echo "- ✅ SSH connectivity established" >> $GITHUB_STEP_SUMMARY
           echo "- 🐳 Docker installation and service status" >> $GITHUB_STEP_SUMMARY
           echo "- 🔧 NVIDIA drivers and GPU detection" >> $GITHUB_STEP_SUMMARY  
-          echo "- 🚀 vLLM framework availability (optional)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎯 GPU-enabled Docker runtime test" >> $GITHUB_STEP_SUMMARY
+          echo "- � NVIDIA Container Toolkit availability (optional)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 GPU access in Docker containers" >> $GITHUB_STEP_SUMMARY
           echo "- 📊 System resources and uptime" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.health.outputs.success }}" = "true" ]; then
             echo "**Status: ✅ ALL CHECKS PASSED**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 **GPU droplet is ready for vLLM workloads!**" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **GPU droplet is ready for containerized GPU workloads!**" >> $GITHUB_STEP_SUMMARY
           else
             echo "**Status: ❌ SOME CHECKS FAILED**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -902,7 +903,7 @@ jobs:
           if [ "${{ needs.create-gpu-droplet.outputs.creation-success }}" = "true" ]; then
             if [ "${{ needs.health-check.outputs.health-check-success }}" = "true" ]; then
               echo "### 🏥 GPU Health Check: SUCCESS" >> $GITHUB_STEP_SUMMARY
-              echo "✅ All services (Docker, NVIDIA, vLLM) are ready on the GPU droplet." >> $GITHUB_STEP_SUMMARY
+              echo "✅ All core services (Docker, NVIDIA drivers, GPU containers) are ready on the GPU droplet." >> $GITHUB_STEP_SUMMARY
             else
               echo "### ⚠️ GPU Health Check: FAILED" >> $GITHUB_STEP_SUMMARY
               echo "❌ Some services may not be properly configured on GPU droplet." >> $GITHUB_STEP_SUMMARY
