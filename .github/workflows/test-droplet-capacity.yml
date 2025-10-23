@@ -185,7 +185,7 @@ jobs:
               # Get full droplet details
               echo ""
               echo "📊 Final droplet details:"
-              doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status,Created
+              doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Memory,VCPUs,Disk,Region,Image,Status
               break
             fi
             
