@@ -81,7 +81,7 @@ jobs:
         id: create
         run: |
           # Generate unique droplet name
-          DROPLET_NAME="test-capacity-$(date +%s)"
+          DROPLET_NAME="gpu-droplet-benchmark-$(date +%s)"
           echo "🚀 Creating droplet: $DROPLET_NAME"
           
           # Convert SSH key names to IDs and format for doctl
@@ -116,7 +116,7 @@ jobs:
             --region "${{ github.event.inputs.region }}" \
             --image "${{ github.event.inputs.image }}" \
             --ssh-keys $SSH_KEY_IDS \
-            --tag-names "capacity-test,github-actions" \
+            --tag-names "gpu-droplet-benchmark,github-actions" \
             --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created \
             --no-header 2>&1); then
             
