@@ -5,23 +5,46 @@ name: GPU Droplet Benchmarking
 on:
   workflow_dispatch:
     inputs:
+      # GPU Droplet Configuration
       slug:
-        description: 'Droplet size slug (e.g., s-1vcpu-1gb, g-2vcpu-8gb-nvidia-l4)'
+        description: 'GPU Droplet size slug (e.g., gpu-h100x1-80gb, gpu-h100x8-640gb)'
         required: true
         type: string
         default: 'gpu-h100x1-80gb'
       region:
-        description: 'DigitalOcean region (e.g., nyc1, nyc3, sfo3, tor1)'
+        description: 'GPU Droplet region (e.g., nyc1, nyc3, sfo3, tor1)'
         required: true
         type: string
         default: 'tor1'
       image:
-        description: 'Droplet image (e.g., ubuntu-22-04-x64, gpu-h100x8-base)'
+        description: 'GPU Droplet image (e.g., gpu-h100x1-base, gpu-h100x8-base)'
         required: true
         type: string
         default: 'gpu-h100x1-base'
       ssh_keys:
         description: 'SSH key names (comma-separated, get with: doctl compute ssh-key list)'
+        required: true
+        type: string
+        default: 'github-actions, macbook'
+      
+      # CPU Droplet Configuration
+      cpu_slug:
+        description: 'CPU Droplet size slug (e.g., s-1vcpu-1gb, c-2, m-2vcpu-16gb)'
+        required: true
+        type: string
+        default: 'c-2'
+      cpu_region:
+        description: 'CPU Droplet region (e.g., nyc1, nyc3, sfo3, tor1)'
+        required: true
+        type: string
+        default: 'tor1'
+      cpu_image:
+        description: 'CPU Droplet image (e.g., ubuntu-22-04-x64, ubuntu-24-04-x64)'
+        required: true
+        type: string
+        default: 'ubuntu-24-04-x64'
+      cpu_ssh_keys:
+        description: 'CPU SSH key names (comma-separated, get with: doctl compute ssh-key list)'
         required: true
         type: string
         default: 'github-actions, macbook'
@@ -214,23 +237,43 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Validate SSH keys
+      - name: Validate CPU droplet inputs
         run: |
-          echo "🔍 Validating SSH keys for CPU droplet..."
+          echo "🔍 Validating CPU droplet inputs..."
           
-          # Validate predefined SSH keys
-          SSH_KEY_NAMES="github-actions,macbook"
-          IFS=',' read -ra SSH_KEYS <<< "$SSH_KEY_NAMES"
+          # Check if CPU region exists
+          echo "Checking CPU region: ${{ github.event.inputs.cpu_region }}"
+          if ! doctl compute region list --format Slug --no-header | grep -q "^${{ github.event.inputs.cpu_region }}$"; then
+            echo "❌ Error: CPU Region '${{ github.event.inputs.cpu_region }}' not found!"
+            echo "Available regions:"
+            doctl compute region list --format Slug,Name,Available
+            exit 1
+          fi
+          echo "✅ CPU Region '${{ github.event.inputs.cpu_region }}' is valid"
+          
+          # Check if CPU size exists
+          echo "Checking CPU droplet size: ${{ github.event.inputs.cpu_slug }}"
+          if ! doctl compute size list --format Slug --no-header | grep -q "^${{ github.event.inputs.cpu_slug }}$"; then
+            echo "❌ Error: CPU Droplet size '${{ github.event.inputs.cpu_slug }}' not found!"
+            echo "Available sizes:"
+            doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly
+            exit 1
+          fi
+          echo "✅ CPU Droplet size '${{ github.event.inputs.cpu_slug }}' is valid"
+          
+          # Validate CPU SSH keys
+          echo "Validating CPU SSH keys: ${{ github.event.inputs.cpu_ssh_keys }}"
+          IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.cpu_ssh_keys }}"
           for key_name in "${SSH_KEYS[@]}"; do
             key_name=$(echo "$key_name" | xargs) # trim whitespace
             if ! doctl compute ssh-key list --format Name --no-header | grep -q "^${key_name}$"; then
-              echo "❌ Error: SSH key name '${key_name}' not found!"
+              echo "❌ Error: CPU SSH key name '${key_name}' not found!"
               echo "Available SSH keys:"
               doctl compute ssh-key list --format ID,Name,Fingerprint
               exit 1
             fi
           done
-          echo "✅ All SSH key names are valid"
+          echo "✅ All CPU SSH key names are valid"
 
       - name: Create CPU droplet
         id: create
@@ -242,8 +285,7 @@ jobs:
           # Convert SSH key names to IDs for CPU droplet
           echo "Converting SSH key names to IDs..."
           SSH_KEY_IDS=""
-          SSH_KEY_NAMES="github-actions,macbook"
-          IFS=',' read -ra SSH_KEYS <<< "$SSH_KEY_NAMES"
+          IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.cpu_ssh_keys }}"
           for key_name in "${SSH_KEYS[@]}"; do
             key_name=$(echo "$key_name" | xargs) # trim whitespace
             key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
@@ -258,19 +300,19 @@ jobs:
           echo ""
           echo "CPU Droplet Configuration:"
           echo "  Name: $DROPLET_NAME"
-          echo "  Size: c-2"
-          echo "  Region: tor1"
-          echo "  Image: ubuntu-24-04-x64"
-          echo "  SSH Key Names: github-actions, macbook"
+          echo "  Size: ${{ github.event.inputs.cpu_slug }}"
+          echo "  Region: ${{ github.event.inputs.cpu_region }}"
+          echo "  Image: ${{ github.event.inputs.cpu_image }}"
+          echo "  SSH Key Names: ${{ github.event.inputs.cpu_ssh_keys }}"
           echo "  SSH Key IDs: $SSH_KEY_IDS"
           echo ""
           
           # Create the CPU droplet
           echo "⏳ Creating CPU droplet..."
           if DROPLET_OUTPUT=$(doctl compute droplet create "$DROPLET_NAME" \
-            --size "c-2" \
-            --region "tor1" \
-            --image "ubuntu-24-04-x64" \
+            --size "${{ github.event.inputs.cpu_slug }}" \
+            --region "${{ github.event.inputs.cpu_region }}" \
+            --image "${{ github.event.inputs.cpu_image }}" \
             --ssh-keys $SSH_KEY_IDS \
             --tag-names "cpu-droplet-benchmark,github-actions" \
             --format ID \
@@ -309,7 +351,7 @@ jobs:
             # Analyze the error
             if echo "$DROPLET_OUTPUT" | grep -i "insufficient\|capacity\|unavailable" > /dev/null; then
               echo ""
-              echo "💡 Analysis: No capacity available for CPU droplet in region tor1"
+              echo "💡 Analysis: No capacity available for CPU droplet in region ${{ github.event.inputs.cpu_region }}"
             elif echo "$DROPLET_OUTPUT" | grep -i "invalid\|not found" > /dev/null; then
               echo ""
               echo "💡 Analysis: Invalid configuration - check size/region/image combination"
@@ -820,10 +862,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "**CPU Droplet Configuration:**" >> $GITHUB_STEP_SUMMARY
-          echo "- **Slug:** \`c-2\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region:** \`tor1\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`ubuntu-24-04-x64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **SSH Key Names:** \`github-actions, macbook\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Slug:** \`${{ github.event.inputs.cpu_slug }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** \`${{ github.event.inputs.cpu_region }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ github.event.inputs.cpu_image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SSH Key Names:** \`${{ github.event.inputs.cpu_ssh_keys }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Check GPU creation result
