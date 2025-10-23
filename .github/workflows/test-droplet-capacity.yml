@@ -639,15 +639,28 @@ jobs:
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Installing NVIDIA Container Toolkit..."
             
+            # Wait for any existing apt processes to complete
+            echo "Waiting for package manager to be available..."
+            while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+              echo "Waiting for apt lock to be released..."
+              sleep 5
+            done
+            
             # Add NVIDIA package repository
             curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
             curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
               sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | \
               tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
             
-            # Install NVIDIA Container Toolkit
-            apt-get update -qq
-            apt-get install -y nvidia-container-toolkit
+            # Install NVIDIA Container Toolkit with retry logic
+            for i in {1..3}; do
+              if apt-get update -qq && apt-get install -y nvidia-container-toolkit; then
+                break
+              else
+                echo "Attempt $i failed, retrying in 10 seconds..."
+                sleep 10
+              fi
+            done
             
             # Configure Docker to use NVIDIA runtime
             nvidia-ctk runtime configure --runtime=docker
@@ -666,7 +679,9 @@ jobs:
           echo "2. 🎯 Testing GPU-enabled Docker with CUDA runtime..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Testing GPU Docker runtime..."
-            docker run --rm --gpus all nvidia/cuda:12.0-runtime-ubuntu22.04 nvidia-smi
+            # Wait for Docker daemon to restart after NVIDIA runtime configuration
+            sleep 10
+            docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi
           '; then
             echo "✅ GPU Docker runtime working correctly"
           else
@@ -679,8 +694,8 @@ jobs:
           echo "3. 🤖 Testing vLLM container capability..."
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Testing vLLM container with GPU access..."
-            # Pull and test vLLM container (lightweight test without model loading)
-            docker run --rm --gpus all vllm/vllm-openai:latest python -c "import vllm; print(f\"vLLM container version: {vllm.__version__}\")"
+            # Test vLLM container by overriding entrypoint to run Python directly
+            docker run --rm --gpus all --entrypoint python vllm/vllm-openai:latest -c "import vllm; print(f\"vLLM container version: {vllm.__version__}\")"
           '; then
             echo "✅ vLLM container working with GPU access"
           else
@@ -704,9 +719,9 @@ jobs:
           echo "## 🔧 GPU Container Runtime Setup Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Components Installed:" >> $GITHUB_STEP_SUMMARY
-          echo "- � **NVIDIA Container Toolkit** - GPU support for Docker containers" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda:12.0 image" >> $GITHUB_STEP_SUMMARY
-          echo "- 🤖 **vLLM Container Support** - Tested containerized ML workload capability" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 **NVIDIA Container Toolkit** - GPU support for Docker containers (with APT lock handling)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda:12.0-base-ubuntu22.04 image" >> $GITHUB_STEP_SUMMARY
+          echo "- 🤖 **vLLM Container Support** - Tested containerized ML workload with proper entrypoint" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Container-First Approach:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ **No host Python dependencies** - All ML workloads run in containers" >> $GITHUB_STEP_SUMMARY
