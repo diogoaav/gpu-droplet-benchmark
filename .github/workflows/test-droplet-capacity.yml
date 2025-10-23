@@ -387,60 +387,60 @@ jobs:
             echo "⚠️ **GPU droplet may need additional setup.**" >> $GITHUB_STEP_SUMMARY
           fi
 
-  destroy-droplet:
-    runs-on: ubuntu-latest
-    needs: [create-droplet, health-check]
-    if: always() && needs.create-droplet.outputs.creation-success == 'true'
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # destroy-droplet:
+  #   runs-on: ubuntu-latest
+  #   needs: [create-droplet, health-check]
+  #   if: always() && needs.create-droplet.outputs.creation-success == 'true'
+  #   
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-      - name: Install doctl
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+  #     - name: Install doctl
+  #       uses: digitalocean/action-doctl@v2
+  #       with:
+  #         token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Destroy droplet
-        run: |
-          DROPLET_ID="${{ needs.create-droplet.outputs.droplet-id }}"
-          DROPLET_NAME="${{ needs.create-droplet.outputs.droplet-name }}"
-          
-          echo "🧹 Destroying test droplet..."
-          echo "Droplet ID: $DROPLET_ID"
-          echo "Droplet Name: $DROPLET_NAME"
-          echo ""
-          
-          # Show droplet details before deletion
-          echo "📊 Current droplet status:"
-          doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
-          echo ""
-          
-          # Delete the droplet
-          echo "🗑️ Deleting droplet..."
-          if doctl compute droplet delete "$DROPLET_ID" --force; then
-            echo "✅ Droplet deleted successfully!"
-            
-            # Verify deletion
-            echo ""
-            echo "🔍 Verifying deletion..."
-            sleep 5
-            
-            if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
-              echo "⚠️ Droplet still exists, but deletion command succeeded (may take a moment)"
-            else
-              echo "✅ Confirmed: Droplet has been completely removed"
-            fi
-          else
-            echo "❌ Failed to delete droplet!"
-            echo "⚠️ IMPORTANT: Manual cleanup may be required!"
-            echo "Run: doctl compute droplet delete $DROPLET_ID --force"
-            exit 1
-          fi
+  #     - name: Destroy droplet
+  #       run: |
+  #         DROPLET_ID="${{ needs.create-droplet.outputs.droplet-id }}"
+  #         DROPLET_NAME="${{ needs.create-droplet.outputs.droplet-name }}"
+  #         
+  #         echo "🧹 Destroying test droplet..."
+  #         echo "Droplet ID: $DROPLET_ID"
+  #         echo "Droplet Name: $DROPLET_NAME"
+  #         echo ""
+  #         
+  #         # Show droplet details before deletion
+  #         echo "📊 Current droplet status:"
+  #         doctl compute droplet get "$DROPLET_ID" --format ID,Name,PublicIPv4,Status || echo "Could not get droplet details"
+  #         echo ""
+  #         
+  #         # Delete the droplet
+  #         echo "🗑️ Deleting droplet..."
+  #         if doctl compute droplet delete "$DROPLET_ID" --force; then
+  #           echo "✅ Droplet deleted successfully!"
+  #           
+  #           # Verify deletion
+  #           echo ""
+  #           echo "🔍 Verifying deletion..."
+  #           sleep 5
+  #           
+  #           if doctl compute droplet get "$DROPLET_ID" --format ID --no-header 2>/dev/null; then
+  #             echo "⚠️ Droplet still exists, but deletion command succeeded (may take a moment)"
+  #           else
+  #             echo "✅ Confirmed: Droplet has been completely removed"
+  #           fi
+  #         else
+  #           echo "❌ Failed to delete droplet!"
+  #           echo "⚠️ IMPORTANT: Manual cleanup may be required!"
+  #           echo "Run: doctl compute droplet delete $DROPLET_ID --force"
+  #           exit 1
+  #         fi
 
   summary:
     runs-on: ubuntu-latest
-    needs: [create-droplet, health-check, destroy-droplet]
+    needs: [create-droplet, health-check]
     if: always()
     
     steps:
@@ -489,14 +489,17 @@ jobs:
           
           # Check destruction result
           if [ "${{ needs.create-droplet.outputs.creation-success }}" = "true" ]; then
-            if [ "${{ needs.destroy-droplet.result }}" = "success" ]; then
-              echo "### 🧹 Cleanup: SUCCESS" >> $GITHUB_STEP_SUMMARY
-              echo "✅ Test droplet was destroyed successfully." >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ⚠️ Cleanup: FAILED" >> $GITHUB_STEP_SUMMARY
-              echo "❌ **IMPORTANT:** Test droplet may still exist!" >> $GITHUB_STEP_SUMMARY
-              echo "**Manual cleanup required:** \`doctl compute droplet delete ${{ needs.create-droplet.outputs.droplet-id }} --force\`" >> $GITHUB_STEP_SUMMARY
-            fi
+            echo "### ⚠️ Cleanup: DISABLED" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 **Automatic cleanup is currently disabled.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Manual cleanup required:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "doctl compute droplet delete ${{ needs.create-droplet.outputs.droplet-id }} --force" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Droplet Details:**" >> $GITHUB_STEP_SUMMARY
+            echo "- **ID:** \`${{ needs.create-droplet.outputs.droplet-id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Name:** \`${{ needs.create-droplet.outputs.droplet-name }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "### ℹ️ Cleanup: SKIPPED" >> $GITHUB_STEP_SUMMARY
             echo "No droplet was created, so no cleanup needed." >> $GITHUB_STEP_SUMMARY
