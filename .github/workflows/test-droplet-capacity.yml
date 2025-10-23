@@ -7,20 +7,22 @@ on:
         description: 'Droplet size slug (e.g., s-1vcpu-1gb, g-2vcpu-8gb-nvidia-l4)'
         required: true
         type: string
+        default: 'gpu-h100x1-80gb'
       region:
         description: 'DigitalOcean region (e.g., nyc1, nyc3, sfo3, tor1)'
         required: true
         type: string
-        default: 'nyc3'
+        default: 'tor1'
       image:
         description: 'Droplet image (e.g., ubuntu-22-04-x64, gpu-h100x8-base)'
         required: true
         type: string
-        default: 'ubuntu-22-04-x64'
+        default: 'gpu-h100x1-base'
       ssh_keys:
         description: 'SSH key names (comma-separated, get with: doctl compute ssh-key list)'
         required: true
         type: string
+        default: 'github-actions, macbook'
 
 jobs:
   create-droplet:
