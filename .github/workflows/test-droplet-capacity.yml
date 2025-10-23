@@ -1,4 +1,4 @@
-name: Test Droplet Capacity
+name: GPU Droplet Benchmarking
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ on:
         type: string
         default: 'ubuntu-22-04-x64'
       ssh_keys:
-        description: 'SSH key IDs (comma-separated, get with: doctl compute ssh-key list)'
+        description: 'SSH key names (comma-separated, get with: doctl compute ssh-key list)'
         required: true
         type: string
 
@@ -66,16 +66,16 @@ jobs:
           # Validate SSH keys
           echo "Validating SSH keys: ${{ github.event.inputs.ssh_keys }}"
           IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.ssh_keys }}"
-          for key_id in "${SSH_KEYS[@]}"; do
-            key_id=$(echo "$key_id" | xargs) # trim whitespace
-            if ! doctl compute ssh-key list --format ID --no-header | grep -q "^${key_id}$"; then
-              echo "❌ Error: SSH key ID '${key_id}' not found!"
+          for key_name in "${SSH_KEYS[@]}"; do
+            key_name=$(echo "$key_name" | xargs) # trim whitespace
+            if ! doctl compute ssh-key list --format Name --no-header | grep -q "^${key_name}$"; then
+              echo "❌ Error: SSH key name '${key_name}' not found!"
               echo "Available SSH keys:"
               doctl compute ssh-key list --format ID,Name,Fingerprint
               exit 1
             fi
           done
-          echo "✅ All SSH keys are valid"
+          echo "✅ All SSH key names are valid"
 
       - name: Create droplet
         id: create
@@ -84,15 +84,29 @@ jobs:
           DROPLET_NAME="test-capacity-$(date +%s)"
           echo "🚀 Creating droplet: $DROPLET_NAME"
           
-          # Convert comma-separated SSH keys to space-separated for doctl
-          SSH_KEYS_FORMATTED=$(echo "${{ github.event.inputs.ssh_keys }}" | tr ',' ' ')
+          # Convert SSH key names to IDs and format for doctl
+          echo "Converting SSH key names to IDs..."
+          SSH_KEY_IDS=""
+          IFS=',' read -ra SSH_KEYS <<< "${{ github.event.inputs.ssh_keys }}"
+          for key_name in "${SSH_KEYS[@]}"; do
+            key_name=$(echo "$key_name" | xargs) # trim whitespace
+            key_id=$(doctl compute ssh-key list --format ID,Name --no-header | grep "$key_name$" | awk '{print $1}')
+            if [ -n "$SSH_KEY_IDS" ]; then
+              SSH_KEY_IDS="$SSH_KEY_IDS $key_id"
+            else
+              SSH_KEY_IDS="$key_id"
+            fi
+            echo "  '$key_name' → ID: $key_id"
+          done
           
+          echo ""
           echo "Configuration:"
           echo "  Name: $DROPLET_NAME"
           echo "  Size: ${{ github.event.inputs.slug }}"
           echo "  Region: ${{ github.event.inputs.region }}"
           echo "  Image: ${{ github.event.inputs.image }}"
-          echo "  SSH Keys: $SSH_KEYS_FORMATTED"
+          echo "  SSH Key Names: ${{ github.event.inputs.ssh_keys }}"
+          echo "  SSH Key IDs: $SSH_KEY_IDS"
           echo ""
           
           # Create the droplet
@@ -101,7 +115,7 @@ jobs:
             --size "${{ github.event.inputs.slug }}" \
             --region "${{ github.event.inputs.region }}" \
             --image "${{ github.event.inputs.image }}" \
-            --ssh-keys $SSH_KEYS_FORMATTED \
+            --ssh-keys $SSH_KEY_IDS \
             --tag-names "capacity-test,github-actions" \
             --format ID,Name,Memory,VCPUs,Disk,Region,Image,Status,Created \
             --no-header 2>&1); then
@@ -235,7 +249,7 @@ jobs:
           echo "- **Slug:** \`${{ github.event.inputs.slug }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Region:** \`${{ github.event.inputs.region }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ github.event.inputs.image }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **SSH Keys:** \`${{ github.event.inputs.ssh_keys }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SSH Key Names:** \`${{ github.event.inputs.ssh_keys }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Check creation result
