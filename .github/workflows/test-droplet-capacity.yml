@@ -546,7 +546,7 @@ jobs:
           
           # 4. GPU-enabled Docker runtime test
           echo "4. 🎯 Testing GPU access in Docker containers..."
-          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi'; then
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=60 root@$PUBLIC_IP 'docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi'; then
             echo "✅ GPU-enabled Docker containers work correctly"
           else
             echo "❌ GPU Docker runtime check failed"
@@ -681,7 +681,7 @@ jobs:
             echo "Testing GPU Docker runtime..."
             # Wait for Docker daemon to restart after NVIDIA runtime configuration
             sleep 10
-            docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi
+            docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
           '; then
             echo "✅ GPU Docker runtime working correctly"
           else
@@ -695,7 +695,7 @@ jobs:
           if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=120 root@$PUBLIC_IP '
             echo "Testing vLLM container with GPU access..."
             # Test vLLM container by overriding entrypoint to run Python directly
-            docker run --rm --gpus all --entrypoint python vllm/vllm-openai:latest -c "import vllm; print(f\"vLLM container version: {vllm.__version__}\")"
+            docker run --rm --gpus all --entrypoint python3 vllm/vllm-openai:latest -c "import vllm; print(f\"vLLM container version: {vllm.__version__}\")"
           '; then
             echo "✅ vLLM container working with GPU access"
           else
@@ -720,7 +720,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Components Installed:" >> $GITHUB_STEP_SUMMARY
           echo "- 🐳 **NVIDIA Container Toolkit** - GPU support for Docker containers (with APT lock handling)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda:12.0-base-ubuntu22.04 image" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 **GPU Docker Runtime** - Tested with nvidia/cuda:12.0.0-base-ubuntu22.04 image" >> $GITHUB_STEP_SUMMARY
           echo "- 🤖 **vLLM Container Support** - Tested containerized ML workload with proper entrypoint" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Container-First Approach:" >> $GITHUB_STEP_SUMMARY
