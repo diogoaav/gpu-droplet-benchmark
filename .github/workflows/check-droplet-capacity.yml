@@ -1,0 +1,117 @@
+name: Check DigitalOcean Droplet Capacity
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Droplet slug (e.g., s-1vcpu-1gb, c-2, g-2vcpu-8gb-nvidia-l4)'
+        required: true
+        type: string
+      region:
+        description: 'DigitalOcean region (e.g., nyc1, nyc3, sfo3, tor1)'
+        required: true
+        type: string
+
+jobs:
+  check-capacity:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Check droplet capacity
+        run: |
+          echo "🔍 Checking capacity for droplet slug: ${{ github.event.inputs.slug }}"
+          echo "📍 Region: ${{ github.event.inputs.region }}"
+          echo ""
+          
+          # Check if the region exists
+          echo "✅ Verifying region exists..."
+          if ! doctl compute region list --format Slug --no-header | grep -q "^${{ github.event.inputs.region }}$"; then
+            echo "❌ Error: Region '${{ github.event.inputs.region }}' not found!"
+            echo ""
+            echo "Available regions:"
+            doctl compute region list --format Slug,Name,Available --no-header
+            exit 1
+          fi
+          
+          # Check if the size exists
+          echo "✅ Verifying droplet size exists..."
+          if ! doctl compute size list --format Slug --no-header | grep -q "^${{ github.event.inputs.slug }}$"; then
+            echo "❌ Error: Droplet size '${{ github.event.inputs.slug }}' not found!"
+            echo ""
+            echo "Available sizes:"
+            doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly --no-header
+            exit 1
+          fi
+          
+          echo "✅ Both region and size are valid"
+          echo ""
+          
+          # Get detailed information about the size
+          echo "📊 Droplet size details:"
+          doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly | grep -E "(Slug|${{ github.event.inputs.slug }})"
+          echo ""
+          
+          # Check availability in the specific region
+          echo "🎯 Checking availability in region ${{ github.event.inputs.region }}..."
+          
+          # Get region availability
+          region_info=$(doctl compute region list --format Slug,Name,Available | grep "^${{ github.event.inputs.region }}")
+          echo "Region info: $region_info"
+          echo ""
+          
+          # Try to get size availability in the region
+          size_regions=$(doctl compute size list --format Slug,Regions | grep "^${{ github.event.inputs.slug }}")
+          echo "Size regional availability: $size_regions"
+          echo ""
+          
+          # Check if size is available in the specified region
+          if echo "$size_regions" | grep -q "${{ github.event.inputs.region }}"; then
+            echo "✅ SUCCESS: Droplet size '${{ github.event.inputs.slug }}' is available in region '${{ github.event.inputs.region }}'"
+          else
+            echo "❌ WARNING: Droplet size '${{ github.event.inputs.slug }}' may not be available in region '${{ github.event.inputs.region }}'"
+            echo ""
+            available_regions=$(echo "$size_regions" | cut -d' ' -f2-)
+            echo "This size is available in the following regions: $available_regions"
+          fi
+          
+          echo ""
+          echo "🔗 You can also check real-time availability at:"
+          echo "https://docs.digitalocean.com/products/platform/availability-matrix/"
+
+      - name: Generate summary
+        run: |
+          echo "## 📋 Capacity Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Droplet Slug:** \`${{ github.event.inputs.slug }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** \`${{ github.event.inputs.region }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add size details to summary
+          echo "### 💻 Droplet Specifications" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly | grep -E "(Slug|${{ github.event.inputs.slug }})" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add availability info
+          size_regions=$(doctl compute size list --format Regions | grep -A1 "Regions" | tail -1)
+          if echo "$size_regions" | grep -q "${{ github.event.inputs.region }}"; then
+            echo "### ✅ Status: Available" >> $GITHUB_STEP_SUMMARY
+            echo "The requested droplet size is available in the specified region." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Status: Limited Availability" >> $GITHUB_STEP_SUMMARY
+            echo "The requested droplet size may have limited availability in the specified region." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Additional Resources" >> $GITHUB_STEP_SUMMARY
+          echo "- [DigitalOcean Availability Matrix](https://docs.digitalocean.com/products/platform/availability-matrix/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [DigitalOcean Pricing](https://www.digitalocean.com/pricing)" >> $GITHUB_STEP_SUMMARY
